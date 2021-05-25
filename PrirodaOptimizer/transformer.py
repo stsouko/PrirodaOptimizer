@@ -1,39 +1,21 @@
-from sklearn.base import BaseEstimator, TransformerMixin
-from .conformer import Conformer
-from os.path import dirname, join
+from itertools import dropwhile, islice, takewhile, tee
+from logging import warning
 from multiprocessing.pool import ThreadPool
-from subprocess import check_call
-from tempfile import mkdtemp
-from itertools import tee, dropwhile, takewhile, islice
+from os.path import dirname, join
 from shutil import rmtree
+from subprocess import call
+from tempfile import mkdtemp
 
+from sklearn.base import BaseEstimator, TransformerMixin
 
-atom_map = {'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10, 'Na': 11, 'Mg': 12,
-            'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18, 'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23,
-            'Cr': 24, 'Mn': 25, 'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30, 'Ga': 31, 'Ge': 32, 'As': 33,
-            'Se': 34, 'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41, 'Mo': 42, 'Tc': 43, 'Ru': 44,
-            'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49, 'Sn': 50, 'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55,
-            'Ba': 56, 'La': 57, 'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65,
-            'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71, 'Hf': 72, 'Ta': 73, 'W': 74, 'Re': 75, 'Os': 76,
-            'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81, 'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86,
-            'Fr': 87, 'Ra': 88, 'Ac': 89, 'Th': 90, 'Pa': 91, 'U': 92, 'Np': 93, 'Pu': 94, 'Am': 95, 'Cm': 96, 'Bk': 97,
-            'Cf': 98, 'Es': 99, 'Fm': 100, 'Md': 101, 'No': 102, 'Lr': 103, 'Rf': 104, 'Db': 105, 'Sg': 106, 'Bh': 107,
-            'Hs': 108, 'Mt': 109, 'Ds': 110, 'Rg': 111, 'Uub': 112, 'Uuq': 114}
-reverse_atom_map = {str(v): k for k, v in atom_map.items()}
+from .atom_map import atom_map, reverse_atom_map
+from .conformer import Conformer
 
 
 class PrirodaOptimizer(BaseEstimator, TransformerMixin):
-    def __init__(self, relative=False, basis="L1", memory=200, tmp_dir="/tmp", tmp_ram=10, n_jobs=1, n_process=1,
+    def __init__(self, relativistic=False, basis='L1', memory=200, tmp_dir='/tmp', tmp_ram=10, n_jobs=1, n_process=1,
                  steps=100):
-        # будем считать гессиан по умолчанию False
-        # basis - базисный набор,
-        # relative - релятивисткий базис
-        # memory  - количество оперативной памяти для расчетов 200мБ
-        # tmp_ram - количество памяти для храния временных файлов расчета, если не является 0
-        # n_jobs
-        # n_process
-        # steps
-        self.relative = relative  # точно символ в символ сохранить, особенность работы с сайкитлерн
+        self.relativistic = relativistic
         self.basis = basis
         self.memory = memory
         self.tmp_dir = tmp_dir
@@ -42,14 +24,10 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
         self.n_process = n_process
         self.steps = steps
 
-    def fit(self, x, y=None):  # обучающие данные
+    def fit(self, x, y=None):
         return self
 
     def transform(self, x, y=None):
-        # подаем список молекул c начальным приближением, возвращаем список молекул с оптимизированной геометриией
-        # храним атомы, коорд, заряд, мультиплетность, для гессиана True/False
-        # x - описывает свойства, экземпляр класса Conformer
-        # валидатор х, iterable: x - list, tuple
         if not isinstance(x, (list, tuple)):
             raise TypeError
         for i in x:
@@ -58,19 +36,29 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
 
         jobs_1, jobs_2 = tee(self._prepare_calc(x))
         results = []
-        with ThreadPool(self.n_jobs) as p:  # создали н_джобс тредов, число потоков
-            for _, (dir_, _, log), conf in zip(p.imap(check_call,
-                                                      (('priexec', '-np', str(self.n_process), 'pribin', inp, out) for
-                                                       _, inp, out in jobs_1)), jobs_2, x):
-                a, c, h, e = self._parse_output(open(log))
-                results.append(Conformer(a, c, conf.charge, conf.multiplicity, h, e))
+        with ThreadPool(self.n_jobs) as p:
+            for rc, (dir_, _, log), conf in zip(p.imap(call,
+                                                       (('priexec', '-np', str(self.n_process), 'pribin', inp, out) for
+                                                        _, inp, out in jobs_1)),
+                                                jobs_2, x):
+                if not rc:
+                    try:
+                        a, c, h, e = self._parse_output(open(log))
+                    except:
+                        warning('log file parsing error')
+                        results.append(conf)
+                    else:
+                        results.append(Conformer(a, c, conf.charge, conf.multiplicity, h, e))
+                else:
+                    warning('priroda exit with error code')
+                    results.append(conf)
                 rmtree(dir_)
         return results
 
     def _prepare_input(self, conf: Conformer, tmp_dir):
-        basis = join(dirname(__file__), f'basis{int(self.relative)}')
+        basis = join(dirname(__file__), f'basis{int(self.relativistic)}')
         out = [f'$system memory={self.memory} disk={self.tmp_ram} path={tmp_dir} $end',
-               f'$control task=optimize+hessian theory=dft four={int(self.relative)} basis={basis} $end',
+               f'$control task=optimize+hessian theory=dft four={int(self.relativistic)} basis={basis} $end',
                '$dft functional=pbe $end', f'$optimize steps={self.steps} $end',
                f'$molecule charge={conf.charge} mult={conf.multiplicity}',
                ' cartesian',
@@ -90,7 +78,8 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
                 f.write(task)
             yield tmp_dir, inp, out
 
-    def _parse_output(self, log):
+    @staticmethod
+    def _parse_output(log):
         atoms = []
         coords = []
 

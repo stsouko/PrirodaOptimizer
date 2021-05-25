@@ -1,6 +1,8 @@
 from itertools import islice
 from pathlib import Path
-from typing import Tuple, Union, TextIO
+from typing import Optional, TextIO, Tuple, Union
+
+from .atom_map import atom_map
 
 
 class _Validator:
@@ -12,19 +14,9 @@ class _Validator:
 
 
 class AtomValidator(_Validator):
-    atoms = {'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al',
-             'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe',
-             'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y',
-             'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te',
-             'I', 'Xe', 'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb',
-             'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt',
-             'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn', 'Fr', 'Ra', 'Ac', 'Th', 'Pa',
-             'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf',
-             'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Uub', 'Uuq'}  # вынести в модуль, сделать константой
-
     def __set__(self, obj, value):
         for i in value:
-            if i not in self.atoms:
+            if i not in atom_map:
                 raise ValueError('Not valid type of atom!')
         setattr(obj, self.name, value)
 
@@ -118,3 +110,51 @@ class Conformer:
             inp.close()
 
         return cls(tuple(atoms), tuple(coords), charge, multiplicity)
+
+    @classmethod
+    def from_rdkit(cls, mol, multiplicity: int = 1, conformer: int = 0):
+        atoms, coords = [], []
+        charge = 0
+        for i in mol.GetAtoms():
+            atoms.append(i.GetSymbol())
+            charge += i.GetFormalCharge()
+
+        conformers = mol.GetConformers()
+        coords = tuple(map(tuple, conformers[conformer].GetPositions()))
+        return cls(tuple(atoms), coords, charge, multiplicity)
+
+    def to_xyz(self, file: Union[str, Path, TextIO]):
+        if isinstance(file, str):
+            out = open(file, 'w')
+            file_open = True
+        elif isinstance(file, Path):
+            out = file.open()
+            file_open = True
+        else:
+            out = file
+            file_open = False
+
+        out.write(f'{len(self.atoms)}\n\n')
+        for atom, (x, y, z) in zip(self.atoms, self.coords):
+            out.write(f'{atom} {x} {y} {z}\n')
+
+        if file_open:
+            out.close()
+
+    def to_cgrtools(self, radius_multiplier=1.25, store_log=False, multiplicity: Optional[int] = None):
+        from CGRtools import XYZRead
+
+        parser = XYZRead.create_parser(radius_multiplier=radius_multiplier, store_log=store_log)
+        matrix = []
+        for a, c in zip(self.atoms, self.coords):
+            matrix.append((a, *c))
+
+        if self.multiplicity == 1:
+            radical = 0
+        elif self.multiplicity == 2:
+            radical = 1
+        elif multiplicity is None:
+            raise ValueError
+        else:
+            radical = multiplicity
+        return parser(matrix, self.charge, radical)
