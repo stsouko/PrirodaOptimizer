@@ -15,22 +15,23 @@ class _Validator:
 
 class AtomValidator(_Validator):
     def __set__(self, obj, value):
+        if not isinstance(value, tuple):
+            raise TypeError
         for i in value:
             if i not in atom_map:
-                raise ValueError('Not valid type of atom!')
+                raise ValueError
         setattr(obj, self.name, value)
 
 
 class CoordsValidator(_Validator):
     def __set__(self, instance, value):
         if not isinstance(value, tuple):
-            raise TypeError("Not a tuple!")
+            raise TypeError
         for i in value:
-
             if not isinstance(i, tuple):
-                raise TypeError("Not a tuple!")
+                raise TypeError
             if len(i) != 3:
-                raise ValueError("Not three values received!")
+                raise ValueError
 
             for temp in i:
                 if not isinstance(temp, float):
@@ -41,51 +42,42 @@ class CoordsValidator(_Validator):
 class ChargeValidator(_Validator):
     def __set__(self, obj, value):
         if not isinstance(value, int):
-            raise ValueError('Not valid type of charge')
+            raise TypeError
         if not -8 < value < 8:
-            raise ValueError('Not valid charge')
+            raise ValueError
         setattr(obj, self.name, value)
 
 
 class MultiplicityValidator(_Validator):
     def __set__(self, obj, value):
         if not isinstance(value, int):
-            raise ValueError('Not valid type of multiplicity')
+            raise TypeError
         if value < 1:
-            raise ValueError('Not valid multiplicity')
-        setattr(obj, self.name, value)
-
-
-class EnergyValidator(_Validator):
-    def __set__(self, obj, value):
-        if not isinstance(value, float):
-            raise ValueError('Not valid type of energy')
-        setattr(obj, self.name, value)
-
-
-class HessianValidator(_Validator):
-    def __set__(self, obj, value):
-        if not isinstance(value, bool):
-            raise ValueError('Not valid type of Hessian')
+            raise ValueError
         setattr(obj, self.name, value)
 
 
 class Conformer:
     atoms = AtomValidator()
+    coords = CoordsValidator()
     charge = ChargeValidator()
     multiplicity = MultiplicityValidator()
-    coords = CoordsValidator()
-    energy = EnergyValidator()
-    hessian = HessianValidator()
 
     def __init__(self, atoms: Tuple[str, ...], coords: Tuple[Tuple[float, float, float], ...],
-                 charge: int, multiplicity: int, hessian: bool = False, energy: float = 0.):
+                 charge: int = 0, multiplicity: int = 1, *,
+                 _hirshfeld_charges: Tuple[float, ...] = None, _mulliken_charges: Tuple[float, ...] = None,
+                 _mulliken_bonds: Tuple[Tuple[int, int, float], ...] = None,
+                 _energy: float = None, _hessian: bool = None):
         self.atoms = atoms
         self.coords = coords
         self.charge = charge
         self.multiplicity = multiplicity
-        self.hessian = hessian
-        self.energy = energy
+
+        self.hirshfeld_charges = _hirshfeld_charges
+        self.mulliken_charges = _mulliken_charges
+        self.mulliken_bonds = _mulliken_bonds
+        self.energy = _energy
+        self.hessian = _hessian
 
     @classmethod
     def from_xyz(cls, file: Union[str, Path, TextIO], charge: int = 0, multiplicity: int = 1):
@@ -158,3 +150,6 @@ class Conformer:
         else:
             radical = multiplicity
         return parser(matrix, self.charge, radical)
+
+
+__all__ = ['Conformer']
