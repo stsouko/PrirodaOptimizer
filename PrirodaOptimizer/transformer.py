@@ -1,3 +1,4 @@
+from copy import deepcopy
 from itertools import dropwhile, islice, takewhile, tee
 from logging import warning
 from multiprocessing.pool import ThreadPool
@@ -43,12 +44,16 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
                                                 jobs_2, x):
                 if not rc:
                     try:
-                        a, c, h, e = self._parse_output(open(log))
+                        a, c, hc, mc, mb, e, h = _parse_output(open(log))
                     except:
                         warning('log file parsing error')
+                        conf = deepcopy(conf)
+                        conf.log = open(log).read()
                         results.append(conf)
                     else:
-                        results.append(Conformer(a, c, conf.charge, conf.multiplicity, h, e))
+                        results.append(Conformer(a, c, conf.charge, conf.multiplicity,
+                                                 _hirshfeld_charges=hc, _mulliken_charges=mc, _mulliken_bonds=mb,
+                                                 _energy=e, _hessian=h, _log=open(log).read()))
                 else:
                     warning('priroda exit with error code')
                     results.append(conf)
@@ -58,7 +63,8 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
     def _prepare_input(self, conf: Conformer, tmp_dir):
         basis = join(dirname(__file__), f'basis{int(self.relativistic)}')
         out = [f'$system memory={self.memory} disk={self.tmp_ram} path={tmp_dir} $end',
-               f'$control task=optimize+hessian theory=dft four={int(self.relativistic)} basis={basis} $end',
+               f'$control task=optimize+hessian theory=dft four={int(self.relativistic)} print=+bonds+charges '
+               f'basis={basis} $end',
                '$dft functional=pbe $end', f'$optimize steps={self.steps} $end',
                f'$molecule charge={conf.charge} mult={conf.multiplicity}',
                ' cartesian',
@@ -78,18 +84,51 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
                 f.write(task)
             yield tmp_dir, inp, out
 
-    @staticmethod
-    def _parse_output(log):
-        atoms = []
-        coords = []
 
-        for line in takewhile(lambda x: not x.startswith('MOL>$end'),
-                              islice(dropwhile(lambda x: not x.startswith('MOL> set'), log), 1, None)):
-            _, atom, x, y, z = line.split()
-            atoms.append(reverse_atom_map[atom])
-            coords.append((float(x), float(y), float(z)))
+def _parse_output(log):
+    atoms = []
+    coords = []
+    hirshfeld_charges = []
+    mulliken_charges = []
+    mulliken_bonds = {}
+    mapping = {}
 
-        freq = next(islice(dropwhile(lambda x: not x.startswith(' | Mode |'), log), 2, None)).split()[3]
-        energy = float(next(dropwhile(lambda x: not x.startswith(' E = '), log)).split()[2])
-        gibbs = float(next(islice(dropwhile(lambda x: not x.startswith(' translational'), log), 3, None)).split()[-1])
-        return tuple(atoms), tuple(coords), 'i' not in freq, energy * 627.51 + gibbs
+    for line in takewhile(lambda x: not x.startswith('MOL>$end'),
+                          islice(dropwhile(lambda x: not x.startswith('MOL> set'), log), 1, None)):
+        _, atom, x, y, z = line.split()
+        atoms.append(reverse_atom_map[atom])
+        coords.append((float(x), float(y), float(z)))
+
+    energy = float(next(log).split()[-1])
+
+    for n, line in enumerate(islice(dropwhile(lambda x: not x.startswith(' Overlap populations:'), log),
+                                    2, 2 + len(atoms))):
+        a, c, _ = line.split()
+        mapping[a] = n
+        mulliken_charges.append(float(c))
+
+    for line in islice(log, 2, 2 + len(atoms)):
+        n, _, *ms = line.split()
+        mulliken_bonds[mapping[n]] = b = {}
+        for m, _, o in zip(*[iter(ms)] * 3):
+            b[mapping[m]] = float(o)
+
+    for line in islice(log, 4, 4 + len(atoms)):
+        hirshfeld_charges.append(float(line.split()[2]))
+
+    freq = next(islice(dropwhile(lambda x: not x.startswith(' | Mode |'), log), 2, None)).split()[3]
+    gibbs = float(next(islice(dropwhile(lambda x: not x.startswith(' translational'), log), 3, None)).split()[-1])
+
+    bonds = []
+    seen = set()
+    for n, ms in mulliken_bonds.items():
+        seen.add(n)
+        for m, b in ms.items():
+            if m not in seen:
+                bonds.append((n, m, b))
+
+    return (tuple(atoms), tuple(coords), tuple(hirshfeld_charges), tuple(mulliken_charges), tuple(bonds),
+            energy * 627.51 + gibbs, 'i' not in freq)
+
+
+__all__ = ['PrirodaOptimizer']
