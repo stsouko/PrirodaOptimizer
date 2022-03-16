@@ -1,7 +1,7 @@
 from itertools import islice
 from pathlib import Path
 from typing import Optional, TextIO, Tuple, Union
-
+from zlib import compress, decompress
 from .atom_map import atom_map
 
 
@@ -67,7 +67,7 @@ class Conformer:
                  charge: int = 0, multiplicity: int = 1, *,
                  _hirshfeld_charges: Tuple[float, ...] = None, _mulliken_charges: Tuple[float, ...] = None,
                  _mulliken_bonds: Tuple[Tuple[int, int, float], ...] = None,
-                 _energy: float = None, _hessian: bool = None):
+                 _energy: float = None, _hessian: bool = None, _log: str = None):
         self.atoms = atoms
         self.coords = coords
         self.charge = charge
@@ -78,6 +78,19 @@ class Conformer:
         self.mulliken_bonds = _mulliken_bonds
         self.energy = _energy
         self.hessian = _hessian
+        if _log:
+            self.log = _log
+
+    @property
+    def log(self):
+        try:
+            return decompress(self._log).decode()
+        except AttributeError:
+            return
+
+    @log.setter
+    def log(self, data):
+        self._log = compress(data.encode())
 
     @classmethod
     def from_xyz(cls, file: Union[str, Path, TextIO], charge: int = 0, multiplicity: int = 1):

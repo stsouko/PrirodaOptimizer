@@ -1,3 +1,4 @@
+from copy import deepcopy
 from itertools import dropwhile, islice, takewhile, tee
 from logging import warning
 from multiprocessing.pool import ThreadPool
@@ -46,11 +47,13 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
                         a, c, hc, mc, mb, e, h = _parse_output(open(log))
                     except:
                         warning('log file parsing error')
+                        conf = deepcopy(conf)
+                        conf.log = open(log).read()
                         results.append(conf)
                     else:
                         results.append(Conformer(a, c, conf.charge, conf.multiplicity,
                                                  _hirshfeld_charges=hc, _mulliken_charges=mc, _mulliken_bonds=mb,
-                                                 _energy=e, _hessian=h))
+                                                 _energy=e, _hessian=h, _log=open(log).read()))
                 else:
                     warning('priroda exit with error code')
                     results.append(conf)
