@@ -2,6 +2,7 @@ from copy import deepcopy
 from itertools import dropwhile, islice, takewhile, tee
 from logging import warning
 from multiprocessing.pool import ThreadPool
+from os import environ
 from os.path import dirname, join
 from shutil import rmtree
 from subprocess import call
@@ -38,7 +39,7 @@ class PrirodaOptimizer(BaseEstimator, TransformerMixin):
         jobs_1, jobs_2 = tee(self._prepare_calc(x))
         results = []
         with ThreadPool(self.n_jobs) as p:
-            for rc, (dir_, _, log), conf in zip(p.imap(call,
+            for rc, (dir_, _, log), conf in zip(p.imap(lambda x: call(x, env=environ),
                                                        (('priexec', '-np', str(self.n_process), 'pribin', inp, out) for
                                                         _, inp, out in jobs_1)),
                                                 jobs_2, x):
