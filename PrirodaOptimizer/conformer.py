@@ -146,8 +146,8 @@ class Conformer:
         if file_open:
             out.close()
 
-    def to_cgrtools(self, radius_multiplier=1.25, store_log=False, multiplicity: Optional[int] = None):
-        from CGRtools import XYZRead
+    def to_chython(self, radius_multiplier=1.25, store_log=False, multiplicity: Optional[int] = None):
+        from chython import XYZRead
 
         parser = XYZRead.create_parser(radius_multiplier=radius_multiplier, store_log=store_log)
         matrix = []
