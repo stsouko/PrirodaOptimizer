@@ -108,13 +108,19 @@ def _parse_output(log):
         mapping[a] = n
         mulliken_charges.append(float(c))
 
-    for line in islice(log, 2, 2 + len(atoms)):
-        n, _, *ms = line.split()
+    for line in islice(log, 2, None):
+        if 'time' in line:
+            break
+        ls = line.split()
+        if ls[0] == '|':
+            ms = ls[1:]
+        else:
+            n, _, *ms = ls
         mulliken_bonds[mapping[n]] = b = {}
         for m, _, o in zip(*[iter(ms)] * 3):
             b[mapping[m]] = float(o)
 
-    for line in islice(log, 4, 4 + len(atoms)):
+    for line in islice(log, 3, 3 + len(atoms)):
         hirshfeld_charges.append(float(line.split()[2]))
 
     freq = next(islice(dropwhile(lambda x: not x.startswith(' | Mode |'), log), 2, None)).split()[3]
