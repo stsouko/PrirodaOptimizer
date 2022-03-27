@@ -18,7 +18,7 @@ Example of usage:
     p = PrirodaOptimizer(tmp_ram=-1000, n_jobs=3)
     for n, o in enumerate(p.transform([c1, c2]), 1):
         print(c.energy)
-        print(c.to_cgrtools())  # get CGRtools.MoleculeContainer
+        print(c.to_chython())  # get chython.MoleculeContainer
         with open(f'opt_{n}.xyz', 'w') as f:
             c.to_xyz(f)
 
@@ -34,3 +34,5 @@ You need to be very accurate to avoid potential mistakes that could follow to mi
 result of calculations or to increase the amount of calculation time that in quantum chemistry is
 already required.
 To make it faster, clear and correct we have written "PRIRODA Optimizer".
+
+Dmitry x2, Zhenya x2, Daria, Polina, Il'nura, Roma, Anya
